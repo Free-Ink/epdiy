@@ -45,3 +45,4 @@ extern const EpdDisplay_t ED047TC2;
 extern const EpdDisplay_t ED078KC1;
 extern const EpdDisplay_t ED052TC4;
 extern const EpdDisplay_t ED103MC2;
+extern const EpdDisplay_t E0470A14_AF;

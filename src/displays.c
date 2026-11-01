@@ -89,3 +89,13 @@ const EpdDisplay_t ED103MC2
         .bus_speed = 11,
         .default_waveform = &epdiy_ED097TC2,
         .display_type = DISPLAY_TYPE_HORIZONTAL_MIRRORED | DISPLAY_UPSEQ_MC2 };
+
+// E0470A14-AF: 4.7" 1216x684, 34-pin, 8-bit source bus (Metalio E-Ink4-Plus).
+const EpdDisplay_t E0470A14_AF = {
+    .width = 1216,
+    .height = 684,
+    .bus_width = 8,
+    .bus_speed = 20,
+    .default_waveform = &epdiy_ED047TC2,
+    .display_type = DISPLAY_TYPE_GENERIC,
+};

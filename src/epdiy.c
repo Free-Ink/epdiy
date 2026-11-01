@@ -484,21 +484,10 @@ void epd_poweroff() {
     epd_current_board()->poweroff(epd_ctrl_state());
 }
 
-void epd_init(
-    const EpdBoardDefinition* board, const EpdDisplay_t* disp, enum EpdInitOptions options
-) {
-    epd_init_with_config(board, disp, options, NULL);
-}
-
-void epd_init_with_config(
-    const EpdBoardDefinition* board,
-    const EpdDisplay_t* disp,
-    enum EpdInitOptions options,
-    const EpdInitConfig* config
-) {
+void epd_init(const EpdBoardDefinition* board, const EpdDisplay_t* disp, enum EpdInitOptions options) {
     display = disp;
     epd_set_board(board);
-    epd_renderer_init(options, config);
+    epd_renderer_init(options);
 }
 
 void epd_deinit() {

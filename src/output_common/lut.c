@@ -151,16 +151,26 @@ __attribute__((optimize("O3"))) void IRAM_ATTR calc_epd_input_8ppB(
 
 /**
  * Look up 4 pixels of a differential image in a LUT constructed for use with vector extensions.
+ *
+ * 每字节 4 像素×2bit。LE 下 ld[j]=p0|(p1<<8)|(p2<<16)|(p3<<24)。
+ * 高地址像素进高位（p3→bits7:6 … p0→bits1:0），与其 LCD/排线一致。
+ * 面板沿 X 先吃高位 2bit，须 p0→bits7:6 … p3→bits1:0；错序会在 4px 组内错位成竖屏重影。
  */
 __attribute__((optimize("O3"))) static inline uint8_t lookup_pixels_in_VE_LUT(
     const uint32_t in, const uint8_t* conversion_lut
 ) {
-    uint32_t* padded_lut = (uint32_t*)conversion_lut;
-    uint8_t out = padded_lut[(in >> 24) & 0xFF] << 6;
-    out |= padded_lut[(in >> 16) & 0xFF] << 4;
-    out |= padded_lut[(in >> 8) & 0xFF] << 2;
-    out |= padded_lut[(in >> 0) & 0xFF];
-    return out;
+    // VE LUT 每项 4B，值在 LE 低字节
+#if defined(CONFIG_IDF_TARGET_ESP32S31)
+    return (uint8_t)(conversion_lut[(in & 0xFFu) << 2] << 6
+                     | conversion_lut[((in >> 8) & 0xFFu) << 2] << 4
+                     | conversion_lut[((in >> 16) & 0xFFu) << 2] << 2
+                     | conversion_lut[(in >> 24) << 2]);
+#else
+    return (uint8_t)(conversion_lut[(in >> 24) << 2] << 6
+                     | conversion_lut[((in >> 16) & 0xFFu) << 2] << 4
+                     | conversion_lut[((in >> 8) & 0xFFu) << 2] << 2
+                     | conversion_lut[(in & 0xFFu) << 2]);
+#endif
 }
 
 /**
@@ -437,6 +447,57 @@ void IRAM_ATTR epd_apply_line_mask(uint8_t* buf, const uint8_t* mask, int len) {
     }
 }
 
+// 脏行与汇总脏列的交集可能包含未变化像素；DU 仅保留黑→黑补黑。
+static void IRAM_ATTR changed_only_phase(
+    uint8_t data[16][4], const EpdWaveformPhases* phases, int frame, bool keep_black
+) {
+    memcpy(data, phases->luts + frame * 16 * 4, 16 * 4);
+    for (unsigned gray = keep_black ? 1 : 0; gray < 16; ++gray) {
+        const unsigned shift = 6 - 2 * (gray & 3);
+        data[gray][gray / 4] &= (uint8_t)~(3u << shift);
+    }
+}
+
+static void IRAM_ATTR build_changed_1ppB_lut_S3_VE_1k(
+    uint8_t* lut, const EpdWaveformPhases* phases, int frame
+) {
+    uint8_t data[16][4];
+    changed_only_phase(data, phases, frame, false);
+    EpdWaveformPhases phase = *phases;
+    phase.luts = (const uint8_t*)data;
+    build_1ppB_lut_S3_VE_1k(lut, &phase, 0);
+}
+
+static void IRAM_ATTR build_changed_1ppB_lut_64k(
+    uint8_t* lut, const EpdWaveformPhases* phases, int frame
+) {
+    uint8_t data[16][4];
+    changed_only_phase(data, phases, frame, false);
+    EpdWaveformPhases phase = *phases;
+    phase.luts = (const uint8_t*)data;
+    build_1ppB_lut_64k(lut, &phase, 0);
+}
+
+static void IRAM_ATTR build_du_1ppB_lut_S3_VE_1k(
+    uint8_t* lut, const EpdWaveformPhases* phases, int frame
+) {
+    uint8_t data[16][4];
+    changed_only_phase(data, phases, frame, true);
+    EpdWaveformPhases phase = *phases;
+    phase.luts = (const uint8_t*)data;
+    build_1ppB_lut_S3_VE_1k(lut, &phase, 0);
+}
+
+static void IRAM_ATTR build_du_1ppB_lut_64k(
+    uint8_t* lut, const EpdWaveformPhases* phases, int frame
+) {
+    uint8_t data[16][4];
+    changed_only_phase(data, phases, frame, true);
+    EpdWaveformPhases phase = *phases;
+    phase.luts = (const uint8_t*)data;
+    build_1ppB_lut_64k(lut, &phase, 0);
+}
+
 LutFunctionPair find_lut_functions(enum EpdDrawMode mode, uint32_t lut_size) {
     LutFunctionPair pair;
     pair.build_func = NULL;
@@ -445,11 +506,17 @@ LutFunctionPair find_lut_functions(enum EpdDrawMode mode, uint32_t lut_size) {
     if (mode & MODE_PACKING_1PPB_DIFFERENCE) {
         if (EPD_CURRENT_RENDER_METHOD == RENDER_METHOD_LCD && !(mode & MODE_FORCE_NO_PIE)
             && lut_size >= 1024) {
-            pair.build_func = &build_1ppB_lut_S3_VE_1k;
+            pair.build_func = mode & MODE_SKIP_UNCHANGED
+                ? ((mode & MODE_UNKNOWN_WAVEFORM) == MODE_DU
+                    ? &build_du_1ppB_lut_S3_VE_1k : &build_changed_1ppB_lut_S3_VE_1k)
+                : &build_1ppB_lut_S3_VE_1k;
             pair.lookup_func = &calc_epd_input_1ppB_1k_S3_VE;
             return pair;
         } else if (lut_size >= 1 << 16) {
-            pair.build_func = &build_1ppB_lut_64k;
+            pair.build_func = mode & MODE_SKIP_UNCHANGED
+                ? ((mode & MODE_UNKNOWN_WAVEFORM) == MODE_DU
+                    ? &build_du_1ppB_lut_64k : &build_changed_1ppB_lut_64k)
+                : &build_1ppB_lut_64k;
             pair.lookup_func = &calc_epd_input_1ppB_64k;
             return pair;
         }

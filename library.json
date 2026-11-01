@@ -28,6 +28,12 @@
   },
   "build": {
     "includeDir": "include",
-    "srcDir": "src/"
+    "srcDir": "src/",
+    "srcFilter": [
+      "+<*>",
+      "-<board/>",
+      "+<board/epd_board.c>",
+      "-<output_i2s/>"
+    ]
   }
 }

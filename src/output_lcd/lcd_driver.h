@@ -1,12 +1,14 @@
 #pragma once
+// Read after a stopped scan; no ISR logging is needed for stream diagnosis.
+void epd_lcd_get_stream_stats(int* max_eof_gap_us,int* max_eof_work_us);
+/** @brief 获取已停止扫描的最近一相 LCD 扫描耗时，单位为微秒。 */
+int epd_lcd_get_scan_time_us(void);
 
 #include <driver/gpio.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#ifndef __DECLARE_RCC_ATOMIC_ENV
-#define __DECLARE_RCC_ATOMIC_ENV (0)
-#endif
+
 /**
  * LCD bus configuration parameters.
  */
@@ -36,6 +38,8 @@ typedef struct {
     int le_high_time;      // = 4
     int bus_width;         // = 16
     lcd_bus_config_t bus;
+    int dummy_clocks_after_data; // Minimum XCL clocks before the next XLE pulse.
+    int white_border_pixels; // Multiple of four; output may only hold/whiten here.
 } LcdEpdConfig_t;
 
 typedef bool (*line_cb_func_t)(void*, uint8_t*);
@@ -46,6 +50,12 @@ void epd_lcd_deinit();
 void epd_lcd_frame_done_cb(frame_done_func_t, void* payload);
 void epd_lcd_line_source_cb(line_cb_func_t, void* payload);
 void epd_lcd_start_frame();
+void epd_lcd_prime_white_border(bool enable);
+int epd_lcd_white_border_pixels(void);
+/**
+ * @brief 中止当前帧（停 LCD/GDMA），供超时路径使用
+ */
+void epd_lcd_abort_frame();
 /**
  * Set the LCD pixel clock frequency in MHz.
  */

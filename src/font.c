@@ -91,7 +91,7 @@ const EpdGlyph* epd_get_glyph(const EpdFont* font, uint32_t code_point) {
     return NULL;
 }
 
-static int uncompress(
+static int epd_uncompress(
     uint8_t* dest, size_t uncompressed_size, const uint8_t* source, size_t source_size
 ) {
     tinfl_decompressor* decomp;
@@ -157,7 +157,7 @@ static enum EpdDrawError IRAM_ATTR draw_char(
             ESP_LOGE("font", "malloc failed.");
             return EPD_DRAW_FAILED_ALLOC;
         }
-        uncompress(tmp_bitmap, bitmap_size, &font->bitmap[offset], glyph->compressed_size);
+        epd_uncompress(tmp_bitmap, bitmap_size, &font->bitmap[offset], glyph->compressed_size);
         bitmap = tmp_bitmap;
     } else {
         bitmap = &font->bitmap[offset];

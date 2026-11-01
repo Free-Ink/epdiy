@@ -1,8 +1,8 @@
-#include <xtensa/config/core-isa.h>
-#include <xtensa/config/core-matmap.h>
 #include "sdkconfig.h"
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
+#include <xtensa/config/core-isa.h>
+#include <xtensa/config/core-matmap.h>
 
 .text
 .align  4

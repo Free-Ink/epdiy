@@ -83,8 +83,6 @@ typedef struct {
     uint8_t* dirty_columns;
     /// The waveform information to use.
     const EpdWaveform* waveform;
-    /// If true, the framebuffer is mirrored horizontally.
-    bool mirror_x;
 } EpdiyHighlevelState;
 
 /**
@@ -103,6 +101,9 @@ EpdiyHighlevelState epd_hl_init(const EpdWaveform* waveform);
 /// Use this to draw on the framebuffer before updating the screen with `epd_hl_update_screen()`.
 uint8_t* epd_hl_get_framebuffer(EpdiyHighlevelState* state);
 
+/// Get a reference to the back framebuffer (last displayed image).
+uint8_t* epd_hl_get_back_framebuffer(EpdiyHighlevelState* state);
+
 /**
  * Update the EPD screen to match the content of the front frame buffer.
  * Prior to this, power to the display must be enabled via `epd_poweron()`
@@ -117,6 +118,14 @@ uint8_t* epd_hl_get_framebuffer(EpdiyHighlevelState* state);
  * @returns `EPD_DRAW_SUCCESS` on sucess, a combination of error flags otherwise.
  */
 enum EpdDrawError epd_hl_update_screen(
+    EpdiyHighlevelState* state, enum EpdDrawMode mode, int temperature
+);
+
+enum EpdDrawError epd_hl_update_screen_full(
+    EpdiyHighlevelState* state, enum EpdDrawMode mode, int temperature
+);
+
+enum EpdDrawError epd_hl_update_screen_from_white(
     EpdiyHighlevelState* state, enum EpdDrawMode mode, int temperature
 );
 

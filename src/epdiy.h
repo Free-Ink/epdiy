@@ -12,7 +12,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "epd_init_config.h"
 #include "epd_internals.h"
 
 /// An area on the display.
@@ -113,6 +112,11 @@ enum EpdDrawMode {
     /// Enforce NOT using S3 Vector extensions.
     /// USed for testing.
     MODE_FORCE_NO_PIE = 0x800,
+    // S31 full-screen gray wipe/reveal; bits 13..14 encode UI orientation.
+    MODE_SPATIAL_WIPE_GL = 0x1000,
+    // 普通差分刷新屏蔽同色驱动，DU 允许保留黑→黑补黑。
+    // 全刷、恢复、测试及调理动画不使用此标记。
+    MODE_SKIP_UNCHANGED = 0x8000,
 };
 
 /** Display software rotation.
@@ -207,14 +211,6 @@ void epd_init(
     const EpdBoardDefinition* board, const EpdDisplay_t* display, enum EpdInitOptions options
 );
 
-/** Initialize the ePaper display with optional bus configuration overrides. */
-void epd_init_with_config(
-    const EpdBoardDefinition* board,
-    const EpdDisplay_t* display,
-    enum EpdInitOptions options,
-    const EpdInitConfig* config
-);
-
 /**
  * Get the configured display.
  */
@@ -267,6 +263,8 @@ void epd_poweroff();
 
 /** Clear the whole screen by flashing it. */
 void epd_clear();
+// Checked clear for recovery: callers must not claim a white baseline on failure.
+enum EpdDrawError epd_clear_checked();
 
 /**
  * Clear an area by flashing it.
