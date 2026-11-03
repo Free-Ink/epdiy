@@ -359,8 +359,17 @@ void epd_renderer_init(enum EpdInitOptions options) {
     }
 
     ESP_LOGI("epd", "Space used for waveform LUT: %dK", lut_size / 1024);
+#if defined(CONFIG_IDF_TARGET_ESP32S31)
+    // FreeInk: the S31's PSRAM is cached, and the 64K pixel-pair LUT stays hot while a phase
+    // streams. In PSRAM it leaves ~70 KB more internal RAM for Wi-Fi, the JPEG decoder and the
+    // BLE controller; a GC16 page took ~940 ms instead of ~920 ms, with no line underruns
+    // (Metalio Plus, 02/11/2026).
+    render_context.conversion_lut
+        = (uint8_t*)heap_caps_malloc(lut_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+#else
     render_context.conversion_lut
         = (uint8_t*)heap_caps_malloc(lut_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+#endif
     if (render_context.conversion_lut == NULL) {
         ESP_LOGE("epd", "could not allocate LUT!");
         abort();
@@ -442,7 +451,11 @@ void epd_renderer_init(enum EpdInitOptions options) {
     const size_t line_threads_bytes = (size_t)rounded_display_height();
     const size_t line_mask_bytes = (size_t)epd_width() / 4;
     ESP_LOGD("epd_dram",
+#if defined(CONFIG_IDF_TARGET_ESP32S31)
+             "render: lut=%u PSRAM; line_q≈%u B; mask/thr INTERNAL=%u B",
+#else
              "render: lut=%u INTERNAL; line_q≈%u B; mask/thr INTERNAL=%u B",
+#endif
              (unsigned)lut_size, (unsigned)line_q_bytes,
              (unsigned)(line_threads_bytes + line_mask_bytes));
 }
