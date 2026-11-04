@@ -131,6 +131,98 @@ static int get_waveform_index(const EpdWaveform* waveform, enum EpdDrawMode mode
 
 /////////////////////////////  API Procedures //////////////////////////////////
 
+// Leading-phase skip, from crossmux's ReadPico port (0x1abin/freeink-sdk 2d40f2b):
+// GC16 sequences end on the same phase and are padded with hold phases in front.
+// A difference draw starts at the first phase any (to, from) pair on screen
+// actually drives; the pixels get the same sequence, so it is lossless. Off until
+// epd_set_leading_skip(true).
+static bool s_leading_skip_enabled;
+static int s_last_leading_skip;
+static uint8_t s_present[256];
+static const uint8_t* s_present_for;
+static uint8_t s_first_active[256];
+
+void epd_set_leading_skip(bool enable) {
+    s_leading_skip_enabled = enable;
+}
+
+void epd_leading_skip_discard(void) {
+    s_present_for = NULL;
+}
+
+int epd_last_leading_skip(void) {
+    return s_last_leading_skip;
+}
+
+static void build_first_active(const EpdWaveformPhases* phases) {
+    for (int to = 0; to < 16; to++) {
+        for (int from = 0; from < 16; from++) {
+            int first = phases->phases;
+            for (int f = 0; f < phases->phases; f++) {
+                const uint8_t b = phases->luts[(f * 16 + to) * 4 + from / 4];
+                if ((b >> (6 - 2 * (from % 4))) & 3) {
+                    first = f;
+                    break;
+                }
+            }
+            s_first_active[(to << 4) | from] = (uint8_t)first;
+        }
+    }
+}
+
+// Marks the (to << 4) | from pairs of one 4bpp source line. Read while the
+// difference is computed, when the line is still in cache.
+__attribute__((optimize("O3"))) static void mark_present_line(
+    const uint8_t* to, const uint8_t* from, int fb_width
+) {
+    const uint32_t* tw = (const uint32_t*)to;
+    const uint32_t* fw = (const uint32_t*)from;
+    uint32_t prev_t = ~tw[0];
+    uint32_t prev_f = 0;
+    for (int i = 0; i < fb_width / 8; i++) {
+        const uint32_t t = tw[i];
+        const uint32_t f = fw[i];
+        if (t == prev_t && f == prev_f) continue;
+        prev_t = t;
+        prev_f = f;
+        const uint32_t hi = (t & 0xF0F0F0F0u) | ((f & 0xF0F0F0F0u) >> 4);
+        const uint32_t lo = ((t & 0x0F0F0F0Fu) << 4) | (f & 0x0F0F0F0Fu);
+        s_present[hi & 0xFF] = 1;
+        s_present[(hi >> 8) & 0xFF] = 1;
+        s_present[(hi >> 16) & 0xFF] = 1;
+        s_present[hi >> 24] = 1;
+        s_present[lo & 0xFF] = 1;
+        s_present[(lo >> 8) & 0xFF] = 1;
+        s_present[(lo >> 16) & 0xFF] = 1;
+        s_present[lo >> 24] = 1;
+    }
+}
+
+// Earliest phase any present pair drives. MODE_SKIP_UNCHANGED zeroes to == from
+// in every phase (DU keeps black -> black), so those pairs do not count.
+static int leading_skip_frames(
+    const EpdWaveformPhases* phases, const uint8_t* data, EpdRect area, enum EpdDrawMode mode
+) {
+    // Rebuilt every draw (cheap): a waveform table may be rewritten in place.
+    build_first_active(phases);
+    if (s_present_for != data) {
+        memset(s_present, 0, sizeof(s_present));
+        const size_t n = (size_t)area.width * (size_t)area.height;
+        for (size_t i = 0; i < n; i++) s_present[data[i]] = 1;
+    }
+    const bool skip_unchanged = mode & MODE_SKIP_UNCHANGED;
+    const bool keep_black = (mode & MODE_UNKNOWN_WAVEFORM) == MODE_DU;
+    int skip = phases->phases;
+    for (int i = 0; i < 256; i++) {
+        if (!s_present[i]) continue;
+        if (skip_unchanged && (i >> 4) == (i & 15) && !(keep_black && i == 0)) continue;
+        if (s_first_active[i] < skip) skip = s_first_active[i];
+    }
+    // All hold: still scan one phase to write zero over the last phase's drive.
+    if (skip >= phases->phases) skip = phases->phases - 1;
+    return skip < 0 ? 0 : skip;
+}
+
 /// Rounded up display height for even division into multi-line buffers.
 static inline int rounded_display_height() {
     return (((epd_height() + 7) / 8) * 8);
@@ -249,8 +341,16 @@ enum EpdDrawError IRAM_ATTR epd_draw_base(
     render_context.lines_prepared = 0;
     render_context.lines_consumed = 0;
     render_context.lines_total = rounded_display_height();
-    render_context.current_frame = 0;
-    render_context.cycle_frames = frame_count;
+    int skip = 0;
+    if (s_leading_skip_enabled && waveform_phases != NULL && waveform_phases->phases > 1
+        && (mode & MODE_PACKING_1PPB_DIFFERENCE) && !render_context.spatial_luts) {
+        skip = leading_skip_frames(waveform_phases, data, area, mode);
+    }
+    s_last_leading_skip = skip;
+    s_present_for = NULL;
+
+    render_context.current_frame = skip;
+    render_context.cycle_frames = frame_count - skip;
     render_context.phase_times = NULL;
     if (waveform_phases != NULL && waveform_phases->phase_times != NULL) {
         render_context.phase_times = waveform_phases->phase_times;
@@ -592,13 +692,16 @@ EpdRect epd_difference_image_base(
     int x_end = min(fb_width, crop_to.x + crop_to.width);
     int y_end = min(fb_height, crop_to.y + crop_to.height);
 
+    if (s_leading_skip_enabled) memset(s_present, 0, sizeof(s_present));
     for (int y = crop_to.y; y < y_end; y++) {
         uint32_t offset = y * fb_width / 2;
         int dirty = _epd_interlace_line(
             to + offset, from + offset, interlaced + offset * 2, col_dirtyness, fb_width
         );
         dirty_lines[y] = dirty;
+        if (s_leading_skip_enabled) mark_present_line(to + offset, from + offset, fb_width);
     }
+    s_present_for = s_leading_skip_enabled ? interlaced : NULL;
 
     int min_x, min_y, max_x, max_y;
     for (min_x = crop_to.x; min_x < x_end; min_x++) {
