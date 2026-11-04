@@ -226,6 +226,7 @@ enum EpdDrawError epd_hl_update_area(EpdiyHighlevelState* state, enum EpdDrawMod
     );
 
     if (diff_area.height == 0 || diff_area.width == 0) {
+        epd_leading_skip_discard();
         return EPD_DRAW_SUCCESS;
     }
 

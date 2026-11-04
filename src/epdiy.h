@@ -536,6 +536,18 @@ enum EpdDrawError epd_draw_base(
     const uint8_t* drawn_columns,
     const EpdWaveform* waveform
 );
+
+/**
+ * Difference draws (`MODE_PACKING_1PPB_DIFFERENCE`) start at the first phase any
+ * (to, from) pair on screen drives, skipping the leading hold phases. Lossless.
+ * Off by default.
+ */
+void epd_set_leading_skip(bool enable);
+/** Phases the last `epd_draw_base` skipped. */
+int epd_last_leading_skip(void);
+/** Drops the pair statistics of a difference that is not drawn next. */
+void epd_leading_skip_discard(void);
+
 /**
  * Calculate a `MODE_PACKING_1PPB_DIFFERENCE` difference image
  * from two `MODE_PACKING_2PPB` (4 bit-per-pixel) buffers.
