@@ -154,6 +154,20 @@ const EpdWaveform* my_waveform_fast(void) {
     return s_fast_gc_phases.luts ? &s_fast_waveform : NULL;
 }
 
+// Replace same-color erase/redraw cycles with one endpoint reinforcement pulse.
+static void gc16_reinforce_same_color(uint8_t (*data)[16][4], int frames) {
+    assert(frames >= 2);
+    for (int f = 0; f < frames; ++f) {
+        for (int gray = 0; gray < 16; ++gray) {
+            const int shift = 6 - 2 * (gray % 4);
+            data[f][gray][gray / 4] &= (uint8_t)~(3u << shift);
+        }
+    }
+    // Keep the final hold phase; intermediate grays receive no reinforcement.
+    lut_or(data, frames - 2, 0, 0, 1);
+    lut_or(data, frames - 2, 15, 15, 2);
+}
+
 static void short_du_build(void);
 static void wipe_build(void);
 
@@ -182,6 +196,7 @@ void my_waveform_init(void) {
     const int gc = my_waveform_trim(&my_gc_25_0, &trim, data);
     const int gl = my_waveform_trim(&my_gl_25_0, &trim, data + MY_FULL_GC16_FRAMES);
     assert(gc == s_fast_gc_phases.phases);
+    gc16_reinforce_same_color(data, gc);
     assert(gl == s_fast_gl_phases.phases);
     gl16_white_tick(data + MY_FULL_GC16_FRAMES, gl);
     s_fast_gc_phases.luts = (const uint8_t*)data;
