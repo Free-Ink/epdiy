@@ -9,6 +9,8 @@ extern const EpdWaveform MY_WAVEFORM;
 void my_waveform_init(void);
 // Balanced: trimmed GC/GL (36/37 phases), unchanged DU; NULL if unavailable.
 const EpdWaveform* my_waveform_fast(void);
+// Sleep settling: two black-only phases and a hold; white/gray targets are untouched.
+const EpdWaveform* my_waveform_black_settle(void);
 // Extreme: 30-phase, 8-gray GL only; GC uses the 16-gray profiles.
 const EpdWaveform* my_waveform_gray8(void);
 const EpdWaveform* my_waveform_short_du(void);

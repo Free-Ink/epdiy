@@ -154,9 +154,9 @@ const EpdWaveform* my_waveform_fast(void) {
     return s_fast_gc_phases.luts ? &s_fast_waveform : NULL;
 }
 
-// Replace same-color erase/redraw cycles with one endpoint reinforcement pulse.
+// Experiment: reinforce both unchanged endpoints twice to reduce transition residue.
 static void gc16_reinforce_same_color(uint8_t (*data)[16][4], int frames) {
-    assert(frames >= 2);
+    assert(frames >= 3);
     for (int f = 0; f < frames; ++f) {
         for (int gray = 0; gray < 16; ++gray) {
             const int shift = 6 - 2 * (gray % 4);
@@ -164,9 +164,45 @@ static void gc16_reinforce_same_color(uint8_t (*data)[16][4], int frames) {
         }
     }
     // Keep the final hold phase; intermediate grays receive no reinforcement.
+    lut_or(data, frames - 3, 0, 0, 1);
     lut_or(data, frames - 2, 0, 0, 1);
+    lut_or(data, frames - 3, 15, 15, 2);
     lut_or(data, frames - 2, 15, 15, 2);
 }
+
+// Experiment: extend the final black-to-white drive by one phase.
+static void gc16_extend_black_to_white(uint8_t (*data)[16][4], int frames) {
+    for (int f = frames - 3; f >= 0; --f) {
+        const int action = (data[f][15][0] >> 6) & 3;
+        const int next = (data[f + 1][15][0] >> 6) & 3;
+        if (action == 2 && next == 0) {
+            lut_or(data, f + 1, 15, 0, 2);
+            break;
+        }
+    }
+}
+
+// Two black-only settling phases and a final hold; other targets are untouched.
+static uint8_t s_black_settle_data[3][16][4];
+static const EpdWaveformPhases s_black_settle_phases = {
+    .phases = 3, .phase_times = NULL, .luts = (const uint8_t*)s_black_settle_data,
+};
+static const EpdWaveformPhases* s_black_settle_ranges[] = { &s_black_settle_phases };
+static const EpdWaveformMode s_black_settle_mode = {
+    .type = 2, .temp_ranges = 1, .range_data = s_black_settle_ranges,
+};
+static const EpdWaveformMode* s_black_settle_modes[] = { &s_black_settle_mode };
+static const EpdWaveform s_black_settle_waveform = {
+    .num_modes = 1, .num_temp_ranges = 1,
+    .mode_data = s_black_settle_modes, .temp_intervals = my_waveform_intervals,
+};
+static void black_settle_build(void) {
+    memset(s_black_settle_data, 0, sizeof(s_black_settle_data));
+    for (int f = 0; f < 2; ++f) {
+        for (int from = 0; from < 16; ++from) lut_or(s_black_settle_data, f, 0, from, 1);
+    }
+}
+const EpdWaveform* my_waveform_black_settle(void) { return &s_black_settle_waveform; }
 
 static void short_du_build(void);
 static void wipe_build(void);
@@ -175,10 +211,12 @@ void my_waveform_init(void) {
     static bool initialized;
     if (initialized) return;
     initialized = true;
+    black_settle_build();
     complete_du_build();
     short_du_build();
     wipe_build();
     memcpy(s_gc16_data, my_gc_25_0_data, sizeof(s_gc16_data));
+    gc16_extend_black_to_white(s_gc16_data, MY_FULL_GC16_FRAMES);
     memcpy(s_gl16_data, my_gl_25_0_data, sizeof(s_gl16_data));
     gl16_white_tick(s_gl16_data, MY_GL16_FRAMES);
 
@@ -197,6 +235,7 @@ void my_waveform_init(void) {
     const int gl = my_waveform_trim(&my_gl_25_0, &trim, data + MY_FULL_GC16_FRAMES);
     assert(gc == s_fast_gc_phases.phases);
     gc16_reinforce_same_color(data, gc);
+    gc16_extend_black_to_white(data, gc);
     assert(gl == s_fast_gl_phases.phases);
     gl16_white_tick(data + MY_FULL_GC16_FRAMES, gl);
     s_fast_gc_phases.luts = (const uint8_t*)data;

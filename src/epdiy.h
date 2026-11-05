@@ -265,6 +265,8 @@ void epd_poweroff();
 void epd_clear();
 // Checked clear for recovery: callers must not claim a white baseline on failure.
 enum EpdDrawError epd_clear_checked();
+// One black/black/white erase cycle.
+enum EpdDrawError epd_clear_once_checked();
 
 /**
  * Clear an area by flashing it.

@@ -411,6 +411,12 @@ enum EpdDrawError epd_clear_checked(void) {
     return render_context.error;
 }
 
+enum EpdDrawError epd_clear_once_checked(void) {
+    render_context.error = EPD_DRAW_SUCCESS;
+    epd_clear_area_cycles(epd_full_screen(), 1, clear_cycle_time);
+    return render_context.error;
+}
+
 void epd_clear_area_cycles(EpdRect area, int cycles, int cycle_time) {
     const short white_time = cycle_time;
     const short dark_time = cycle_time;

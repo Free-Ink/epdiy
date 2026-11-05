@@ -20,9 +20,10 @@ end=source.index('\n}',start)+2
 code='''#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "my_waveform_gc.h"
 #include "my_waveform_trim.h"
-'''+source[start:end]+function('gc16_reinforce_same_color')+r'''
+'''+source[start:end]+function('gc16_reinforce_same_color')+function('gc16_extend_black_to_white')+'\nstatic uint8_t s_black_settle_data[3][16][4];\n'+function('black_settle_build')+r'''
 static unsigned char original[48][16][4], reinforced[48][16][4];
 static int get(unsigned char table[48][16][4],int f,int to,int from) {
  return (table[f][to][from/4]>>(6-2*(from%4)))&3;
@@ -36,9 +37,36 @@ int main(void) {
  for(int f=0;f<n;f++) for(int to=0;to<16;to++) for(int from=0;from<16;from++) {
   int actual=get(reinforced,f,to,from);
   if(to!=from) assert(actual==get(original,f,to,from));
-  else assert(actual==(f==n-2 ? (to==0?1:to==15?2:0) : 0));
+  else {
+   int expected=to==0 && (f==n-3 || f==n-2) ? 1 : to==15 && (f==n-3 || f==n-2) ? 2 : 0;
+   assert(actual==expected);
+  }
  }
- puts("All changed-pixel actions preserved; exactly one same-color endpoint pulse; final hold intact");
+ for(int profile=0;profile<2;profile++) {
+  int frames=n;
+  if(profile==1) {
+   frames=48;
+   memcpy(reinforced,my_gc_25_0_data,sizeof(reinforced));
+  }
+  memcpy(original,reinforced,sizeof(original));
+  gc16_extend_black_to_white(reinforced,frames);
+  int changes=0;
+  for(int f=0;f<frames;f++) for(int to=0;to<16;to++) for(int from=0;from<16;from++) {
+   int before=get(original,f,to,from),after=get(reinforced,f,to,from);
+   if(before!=after) {
+    assert(to==15 && from==0 && f<frames-1 && f>0);
+    assert(before==0 && after==2 && get(original,f-1,15,0)==2);
+    changes++;
+   }
+  }
+  assert(changes==1);
+ }
+ black_settle_build();
+ for(int f=0;f<3;f++) for(int to=0;to<16;to++) for(int from=0;from<16;from++) {
+  int action=(s_black_settle_data[f][to][from/4]>>(6-2*(from%4)))&3;
+  assert(action==((f<2 && to==0)?1:0));
+ }
+ puts("Trimmed GC16: two white and two black reinforcement pulses, final hold intact; transition adjustment preserved");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='epdiy-same-color-') as tmp:
