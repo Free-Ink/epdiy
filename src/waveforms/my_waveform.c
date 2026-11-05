@@ -154,7 +154,7 @@ const EpdWaveform* my_waveform_fast(void) {
     return s_fast_gc_phases.luts ? &s_fast_waveform : NULL;
 }
 
-// Experiment: reinforce both unchanged endpoints twice to reduce transition residue.
+// Reinforce both unchanged endpoints twice to reduce transition residue.
 static void gc16_reinforce_same_color(uint8_t (*data)[16][4], int frames) {
     assert(frames >= 3);
     for (int f = 0; f < frames; ++f) {
@@ -170,12 +170,16 @@ static void gc16_reinforce_same_color(uint8_t (*data)[16][4], int frames) {
     lut_or(data, frames - 2, 15, 15, 2);
 }
 
-// Experiment: extend the final black-to-white drive by one phase.
-static void gc16_extend_black_to_white(uint8_t (*data)[16][4], int frames) {
+// Shorten white-to-black by one phase and extend black-to-white by one phase.
+static void gc16_adjust_endpoint_transitions(uint8_t (*data)[16][4], int frames) {
+    for (int f = frames - 2; f >= 0; --f) {
+        if (lut_get(data, f, 0, 15) == 1) {
+            data[f][0][3] &= (uint8_t)~3u;
+            break;
+        }
+    }
     for (int f = frames - 3; f >= 0; --f) {
-        const int action = (data[f][15][0] >> 6) & 3;
-        const int next = (data[f + 1][15][0] >> 6) & 3;
-        if (action == 2 && next == 0) {
+        if (lut_get(data, f, 15, 0) == 2 && lut_get(data, f + 1, 15, 0) == 0) {
             lut_or(data, f + 1, 15, 0, 2);
             break;
         }
@@ -216,7 +220,7 @@ void my_waveform_init(void) {
     short_du_build();
     wipe_build();
     memcpy(s_gc16_data, my_gc_25_0_data, sizeof(s_gc16_data));
-    gc16_extend_black_to_white(s_gc16_data, MY_FULL_GC16_FRAMES);
+    gc16_adjust_endpoint_transitions(s_gc16_data, MY_FULL_GC16_FRAMES);
     memcpy(s_gl16_data, my_gl_25_0_data, sizeof(s_gl16_data));
     gl16_white_tick(s_gl16_data, MY_GL16_FRAMES);
 
@@ -235,7 +239,7 @@ void my_waveform_init(void) {
     const int gl = my_waveform_trim(&my_gl_25_0, &trim, data + MY_FULL_GC16_FRAMES);
     assert(gc == s_fast_gc_phases.phases);
     gc16_reinforce_same_color(data, gc);
-    gc16_extend_black_to_white(data, gc);
+    gc16_adjust_endpoint_transitions(data, gc);
     assert(gl == s_fast_gl_phases.phases);
     gl16_white_tick(data + MY_FULL_GC16_FRAMES, gl);
     s_fast_gc_phases.luts = (const uint8_t*)data;

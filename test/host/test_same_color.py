@@ -17,13 +17,15 @@ def function(name):
 # lut_or is inline; compile its production body too.
 start=source.index('static inline void lut_or(')
 end=source.index('\n}',start)+2
+get_start=source.index('static inline int lut_get(')
+get_end=source.index('\n}',get_start)+2
 code='''#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "my_waveform_gc.h"
 #include "my_waveform_trim.h"
-'''+source[start:end]+function('gc16_reinforce_same_color')+function('gc16_extend_black_to_white')+'\nstatic uint8_t s_black_settle_data[3][16][4];\n'+function('black_settle_build')+r'''
+'''+source[start:end]+source[get_start:get_end]+function('gc16_reinforce_same_color')+function('gc16_adjust_endpoint_transitions')+'\nstatic uint8_t s_black_settle_data[3][16][4];\n'+function('black_settle_build')+r'''
 static unsigned char original[48][16][4], reinforced[48][16][4];
 static int get(unsigned char table[48][16][4],int f,int to,int from) {
  return (table[f][to][from/4]>>(6-2*(from%4)))&3;
@@ -49,24 +51,27 @@ int main(void) {
    memcpy(reinforced,my_gc_25_0_data,sizeof(reinforced));
   }
   memcpy(original,reinforced,sizeof(original));
-  gc16_extend_black_to_white(reinforced,frames);
+  gc16_adjust_endpoint_transitions(reinforced,frames);
   int changes=0;
   for(int f=0;f<frames;f++) for(int to=0;to<16;to++) for(int from=0;from<16;from++) {
    int before=get(original,f,to,from),after=get(reinforced,f,to,from);
    if(before!=after) {
-    assert(to==15 && from==0 && f<frames-1 && f>0);
-    assert(before==0 && after==2 && get(original,f-1,15,0)==2);
+    assert(((to==15 && from==0) || (to==0 && from==15)) && f<frames-1 && f>0);
+    if(to==0) {
+     assert(before==1 && after==0);
+     for(int later=f+1;later<frames;later++) assert(get(original,later,0,15)!=1);
+    } else assert(before==0 && after==2 && get(original,f-1,to,from)==2);
     changes++;
    }
   }
-  assert(changes==1);
+  assert(changes==2);
  }
  black_settle_build();
  for(int f=0;f<3;f++) for(int to=0;to<16;to++) for(int from=0;from<16;from++) {
   int action=(s_black_settle_data[f][to][from/4]>>(6-2*(from%4)))&3;
   assert(action==((f<2 && to==0)?1:0));
  }
- puts("Trimmed GC16: two white and two black reinforcement pulses, final hold intact; transition adjustment preserved");
+ puts("Trimmed GC16: two white and two black reinforcement pulses, final hold intact; white-to-black shortened, black-to-white extension preserved in full and trimmed tables");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='epdiy-same-color-') as tmp:
